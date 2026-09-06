@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: seatsync-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: seatsync
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d seatsync"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: seatsync-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: seatsync-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      DATABASE_URL: postgres://postgres:postgrespassword@postgres:5432/seatsync
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: seatsync_super_secret_production_key_change_in_real_prod_2026
+      JWT_EXPIRES_IN: 7d
+      MAX_SEATS_PER_BOOKING: 6
+      LOCK_TTL_SECONDS: 600
+      CLIENT_URL: http://localhost:5173
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: seatsync-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
